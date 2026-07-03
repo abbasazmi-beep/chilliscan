@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>ChilliScan — Maturity Detector</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+  <div class="app-shell">
+
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo">ChilliScan</div>
+      <span class="badge">Beta</span>
+    </header>
+
+    <!-- Hero -->
+    <section class="hero">
+      <h1>Is your chilli ready<br>to harvest?</h1>
+      <p class="subtitle">Point your camera at a chilli. Get an instant maturity reading.</p>
+    </section>
+
+    <!-- Upload Card -->
+    <div class="card upload-card" id="uploadCard">
+
+      <!-- Image Preview Area -->
+      <div class="preview-zone" id="previewZone">
+        <div class="preview-placeholder" id="placeholder">
+          <div class="camera-icon">📷</div>
+          <p>Tap to take a photo<br><span>or upload from gallery</span></p>
+        </div>
+        <img id="previewImg" src="" alt="Preview" style="display:none"/>
+      </div>
+
+      <!-- Hidden file inputs -->
+      <input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none"/>
+      <input type="file" id="galleryInput" accept="image/*" style="display:none"/>
+
+      <!-- Action Buttons -->
+      <div class="btn-group">
+        <button class="btn btn-primary" onclick="document.getElementById('cameraInput').click()">
+          Take Photo
+        </button>
+        <button class="btn btn-secondary" onclick="document.getElementById('galleryInput').click()">
+          Upload
+        </button>
+      </div>
+
+      <!-- Model Selector -->
+      <div class="model-selector">
+        <p class="model-label">Detection model</p>
+        <div class="model-tabs">
+          <button class="model-tab active" data-model="mobilenet" onclick="selectModel(this)">
+            MobileNetV2
+          </button>
+          <button class="model-tab" data-model="svm" onclick="selectModel(this)">
+            SVM
+          </button>
+        </div>
+      </div>
+
+      <!-- Analyse Button -->
+      <button class="btn btn-analyse" id="analyseBtn" onclick="analyse()" disabled>
+        Analyse Chilli
+      </button>
+
+    </div>
+
+    <!-- Result Card (hidden until prediction) -->
+    <div class="card result-card" id="resultCard" style="display:none">
+
+      <div class="result-image-wrap">
+        <img id="resultImg" src="" alt="Analysed chilli"/>
+      </div>
+
+      <div class="result-body">
+        <div class="result-label-wrap">
+          <span class="result-emoji" id="resultEmoji">🌶️</span>
+          <div>
+            <p class="result-tag" id="resultTag">—</p>
+            <h2 class="result-label" id="resultLabel">—</h2>
+          </div>
+        </div>
+
+        <div class="confidence-bar-wrap">
+          <div class="confidence-header">
+            <span>Confidence</span>
+            <span id="confidenceText">—</span>
+          </div>
+          <div class="confidence-track">
+            <div class="confidence-fill" id="confidenceFill"></div>
+          </div>
+        </div>
+
+        <div class="result-meta">
+          <span>Model used:</span>
+          <strong id="modelUsed">—</strong>
+        </div>
+
+        <div class="tip-card" id="tipCard"></div>
+
+        <button class="btn btn-secondary full-width" onclick="reset()">
+          Try Another
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div class="loading-overlay" id="loadingOverlay" style="display:none">
+      <div class="spinner"></div>
+      <p>Analysing chilli…</p>
+    </div>
+
+    <!-- Footer -->
+    <footer class="app-footer">
+      <p>ChilliScan · MMU FYP2 · Data Science</p>
+    </footer>
+
+  </div>
+
+  <script>
+    let selectedFile = null;
+    let selectedModel = 'mobilenet';
+
+    // Handle camera input
+    document.getElementById('cameraInput').addEventListener('change', function(e) {
+      handleFile(e.target.files[0]);
+    });
+
+    // Handle gallery input
+    document.getElementById('galleryInput').addEventListener('change', function(e) {
+      handleFile(e.target.files[0]);
+    });
+
+    // Click on preview zone triggers camera
+    document.getElementById('previewZone').addEventListener('click', function() {
+      if (!selectedFile) {
+        document.getElementById('cameraInput').click();
+      }
+    });
+
+    function handleFile(file) {
+      if (!file) return;
+      selectedFile = file;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('placeholder').style.display = 'none';
+        const img = document.getElementById('previewImg');
+        img.src = e.target.result;
+        img.style.display = 'block';
+        document.getElementById('analyseBtn').disabled = false;
+      };
+      reader.readAsDataURL(file);
+    }
+
+    function selectModel(btn) {
+      document.querySelectorAll('.model-tab').forEach(t => t.classList.remove('active'));
+      btn.classList.add('active');
+      selectedModel = btn.dataset.model;
+    }
+
+    async function analyse() {
+      if (!selectedFile) return;
+
+      // Show loading
+      document.getElementById('loadingOverlay').style.display = 'flex';
+      document.getElementById('resultCard').style.display = 'none';
+
+      const formData = new FormData();
+      formData.append('image', selectedFile);
+      formData.append('model', selectedModel);
+
+      try {
+        const response = await fetch('/predict', {
+          method: 'POST',
+          body: formData
+        });
+
+        const result = await response.json();
+
+        if (result.error) {
+          alert(result.error);
+          document.getElementById('loadingOverlay').style.display = 'none';
+          return;
+        }
+
+        showResult(result);
+
+      } catch (err) {
+        alert('Something went wrong. Please try again.');
+        document.getElementById('loadingOverlay').style.display = 'none';
+      }
+    }
+
+    function showResult(result) {
+  document.getElementById('loadingOverlay').style.display = 'none';
+  document.getElementById('uploadCard').style.display = 'none';
+
+  document.getElementById('resultImg').src = result.image_url;
+  document.getElementById('resultLabel').textContent = result.label;
+  document.getElementById('confidenceText').textContent = result.confidence + '%';
+  document.getElementById('modelUsed').textContent = result.model;
+
+  const emojis = {
+    'Ripe':      '🌶️',
+    'Unripe':    '🌿',
+    'Semi-Ripe': '🟡',
+    'Overripe':  '⚠️'
+  };
+  const tags = {
+    'Ripe':      'Ready to harvest',
+    'Unripe':    'Not ready yet',
+    'Semi-Ripe': 'Almost there',
+    'Overripe':  'Past peak'
+  };
+  const tips = {
+    'Ripe':      '🌶️ Your chilli is ready! Harvest now for the best flavour and heat.',
+    'Unripe':    '🌿 Give it a few more days. Green chillies need more time to develop.',
+    'Semi-Ripe': '⏳ Getting close! Check again in 2–3 days — it\'s turning nicely.',
+    'Overripe':  '⚠️ Harvest immediately to prevent spoiling on the plant.'
+  };
+
+  document.getElementById('resultEmoji').textContent = emojis[result.label] || '🌶️';
+  document.getElementById('resultTag').textContent = tags[result.label] || '';
+  document.getElementById('tipCard').textContent = tips[result.label] || '';
+
+  const card = document.getElementById('resultCard');
+  card.className = 'card result-card result-' + result.color;
+  card.style.display = 'block';
+
+  setTimeout(() => {
+    document.getElementById('confidenceFill').style.width = result.confidence + '%';
+  }, 100);
+}
+
+    function reset() {
+      selectedFile = null;
+      document.getElementById('uploadCard').style.display = 'block';
+      document.getElementById('resultCard').style.display = 'none';
+      document.getElementById('previewImg').style.display = 'none';
+      document.getElementById('placeholder').style.display = 'flex';
+      document.getElementById('analyseBtn').disabled = true;
+      document.getElementById('confidenceFill').style.width = '0%';
+      document.getElementById('cameraInput').value = '';
+      document.getElementById('galleryInput').value = '';
+    }
+  </script>
+
+</body>
+</html>
