@@ -5,25 +5,38 @@ import json
 import numpy as np
 from PIL import Image
 import pickle
-import tensorflow as tf
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = 'static/uploads'
-app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024  # 16MB max
+app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'webp'}
 
 # ── Load Models ───────────────────────────────────────────────
 print("Loading models...")
 
+# SVM + Label Encoder
 with open('models/svm_model.pkl', 'rb') as f:
     svm_model = pickle.load(f)
 
 with open('models/label_encoder.pkl', 'rb') as f:
     label_encoder = pickle.load(f)
 
-mobilenet_model = tf.keras.models.load_model('models/mobilenet_model.keras')
+# TFLite MobileNetV2
+try:
+    from tflite_runtime.interpreter import Interpreter
+    print("Using tflite_runtime")
+except ImportError:
+    import tensorflow as tf
+    Interpreter = tf.lite.Interpreter
+    print("Using tensorflow.lite")
 
+interpreter = Interpreter(model_path='models/mobilenet_model.tflite')
+interpreter.allocate_tensors()
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
+
+# Class indices
 with open('models/class_indices.json', 'r') as f:
     class_indices = json.load(f)
 idx_to_class = {v: k for k, v in class_indices.items()}
@@ -41,7 +54,7 @@ def preprocess_for_svm(image_path):
 
 def preprocess_for_mobilenet(image_path):
     img = Image.open(image_path).convert('RGB').resize((96, 96))
-    arr = np.array(img) / 255.0
+    arr = np.array(img, dtype=np.float32) / 255.0
     return arr.reshape(1, 96, 96, 3)
 
 def get_color(label):
@@ -86,7 +99,9 @@ def predict():
             model_name = "SVM"
         else:
             X = preprocess_for_mobilenet(filepath)
-            preds = mobilenet_model.predict(X, verbose=0)[0]
+            interpreter.set_tensor(input_details[0]['index'], X)
+            interpreter.invoke()
+            preds = interpreter.get_tensor(output_details[0]['index'])[0]
             pred_idx = int(np.argmax(preds))
             label = idx_to_class[pred_idx]
             confidence = round(float(np.max(preds)) * 100, 1)
