@@ -22,14 +22,8 @@ with open('models/svm_model.pkl', 'rb') as f:
 with open('models/label_encoder.pkl', 'rb') as f:
     label_encoder = pickle.load(f)
 
-# TFLite MobileNetV2
-try:
-    from tflite_runtime.interpreter import Interpreter
-    print("Using tflite_runtime")
-except ImportError:
-    import tensorflow as tf
-    Interpreter = tf.lite.Interpreter
-    print("Using tensorflow.lite")
+# ai edge litert
+from ai_edge_litert.interpreter import Interpreter
 
 interpreter = Interpreter(model_path='models/mobilenet_model.tflite')
 interpreter.allocate_tensors()
